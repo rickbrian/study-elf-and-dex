@@ -56,7 +56,7 @@ int load_elf(const char* sz) {
 
     //2.2 申请内存
     void *pBase = mmap64(NULL, nLoadSize, PROT_READ | PROT_WRITE | PROT_EXEC,
-                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+                         MAP_PRIVATE | MAP_ANONYMOUS , -1, 0);
 
     //2.3 加载段到程序中
     for (size_t i = 0; i < ehdr.e_phnum; i++) {
