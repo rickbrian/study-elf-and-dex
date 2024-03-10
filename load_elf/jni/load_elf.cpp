@@ -3,7 +3,7 @@
 //
 #include "load_elf.h"
 
-
+typedef void*(*PFN_INIT)();
 
 #define  PAGE_SIZE 0X1000
 typedef struct elf64_hash
@@ -16,6 +16,88 @@ typedef struct elf64_hash
     uint32_t* gnu_bucket_;
     uint32_t* gnu_chain_;
 }Elf64_Hash;
+
+uint32_t gnu_hash(const char* name) {
+    uint32_t h = 5381;
+    while (*name != 0) {
+        h += (h << 5) + *name++; // h*33 + c = h + h * 32 + c = h + h << 5 + c
+    }
+
+    return h;
+}
+Elf64_Hash g_hash = {0};
+Elf64_Sym *pSymTab = NULL;
+char *pszStrTab = NULL;
+void* myDlsym(void* pBase , const char* szName)
+{
+    uint32_t nHash = gnu_hash(szName);
+    uint32_t h2 = nHash >> g_hash.shift2;
+
+    uint32_t bloom_mask_bits = 64;
+    uint32_t word_num = (nHash / bloom_mask_bits) & g_hash.mask_swords;
+    uint64_t bloom_word = g_hash.gnu_bloom_filter_[word_num];
+
+    if ((1 & (bloom_word >> (nHash % bloom_mask_bits)) & (bloom_word >> (h2 % bloom_mask_bits))) == 0) {
+      return ;
+    }
+
+    uint32_t n = g_hash.gnu_bucket_[nHash % g_hash.nbucket];
+
+    do
+    {
+        Elf64_Sym* s = pSymTab + n;
+        if (((g_hash.gnu_chain_[n] ^ nHash) >> 1) == 0 &&
+            strcmp(pszStrTab + s->st_name, szName) == 0 )
+        {
+            return pBase + s->st_value;
+        }
+    } while ((g_hash.gnu_chain_[n++] & 1) == 0);
+
+    return NULL;
+}
+
+__attribute__((noinline))
+void Relacate(void* pBase, Elf64_Rela* pRel ,size_t nNumOfRels, Elf64_Sym* pSym,
+    void* hSos[], size_t nNumOfSos, const char* pStr){
+        for (size_t i = 0; i < nNumOfRels; i++)
+        {
+            uint32_t nSym = ELF64_R_SYM(pRel[i].r_info);
+            uint32_t nType = ELF64_R_TYPE(pRel[i].r_info);
+
+            //根据符号获取地址
+            void *nAddr = NULL;
+            if( pSym[nSym].st_value  != 0 ){
+                //导出符号，自己模块内部的符号
+                nAddr = pBase + pSym[nSym].st_value;
+            }
+            else{
+                for (size_t i = 0; i < nNumOfSos; i++)
+                {
+                    nAddr = dlsym(hSos[i],pStr + pSym[nSym].st_name);
+                    if(nAddr != NULL){
+                        break;
+                    }
+                }
+                
+            }
+
+            switch (nType)
+            {
+            case R_AARCH64_RELATIVE:
+                *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)(pBase + pRel[i].r_addend);
+                break;
+                break;
+            case R_AARCH64_GLOB_DAT:
+                *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)nAddr;
+                break;
+            case R_AARCH64_JUMP_SLOT:
+                *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)nAddr;
+            default:
+                break;
+            }
+        }
+        
+}
 
 int load_elf(const char* sz) {
     //1.读取文件，文件头和段表
@@ -88,9 +170,9 @@ int load_elf(const char* sz) {
 
     //3.1解析动态段
 
-    Elf64_Hash hash = {0};
 
-    char *pszStrTab = NULL;
+
+
 
     Elf64_Sym *pSymTab = NULL;
     size_t nNumOfSym = 0;
@@ -104,6 +186,8 @@ int load_elf(const char* sz) {
     Elf64_Rela *pRelaPlt = NULL;
     size_t nNumOfRelaPlt = 0;
 
+    PFN_INIT* bufInis = NULL;
+    size_t nNumOfInis = 0;
 
     while (pDyn->d_tag != DT_NULL) {
         switch (pDyn->d_tag) {
@@ -114,7 +198,7 @@ int load_elf(const char* sz) {
                 pSymTab = (Elf64_Sym *) ((char *) pBase + pDyn->d_un.d_ptr);
                 break;
             case DT_NEEDED:
-                bufNeed[nNumOfNeed++] = pszStrTab + pDyn->d_un.d_val;
+                bufNeed[nNumOfNeed++] =  (char*)pDyn->d_un.d_val;
                 break;
             case DT_RELA:
                 pRelaDyn = (Elf64_Rela *) ((char *) pBase + pDyn->d_un.d_ptr);
@@ -130,24 +214,52 @@ int load_elf(const char* sz) {
                 break;
             case DT_GNU_HASH: {
                 uint8_t *pHashTable = (uint8_t *) pBase + pDyn->d_un.d_ptr;
-                hash.nbucket = ((uint32_t *) pHashTable)[0];
-                hash.symindex = ((uint32_t *) pHashTable)[1];
-                hash.mask_swords = ((uint32_t *) pHashTable)[2];
-                hash.shift2 = ((uint32_t *) pHashTable)[3];
+                g_hash.nbucket = ((uint32_t *) pHashTable)[0];
+                g_hash.symindex = ((uint32_t *) pHashTable)[1];
+                g_hash.mask_swords = ((uint32_t *) pHashTable)[2];
+                g_hash.shift2 = ((uint32_t *) pHashTable)[3];
 
-                hash.gnu_bloom_filter_ = (uint64_t *) (pHashTable + 16);
-                hash.gnu_bucket_ = (uint32_t *) (hash.gnu_bloom_filter_ + hash.mask_swords);
-                hash.gnu_chain_ = hash.gnu_bucket_ + hash.nbucket;
+                g_hash.gnu_bloom_filter_ = (uint64_t *) (pHashTable + 16);
+                g_hash.gnu_bucket_ = (uint32_t *) (g_hash.gnu_bloom_filter_ + g_hash.mask_swords);
+                g_hash.gnu_chain_ = g_hash.gnu_bucket_ + g_hash.nbucket - g_hash.symindex;
+
+                --g_hash.mask_swords;
                 break;
             }
+            case DT_INIT_ARRAY:
+                bufInis = (PFN_INIT*)(pBase + pDyn->d_un.d_ptr);
+                break;
+            case DT_INIT_ARRAYSZ:
+                nNumOfInis =  pDyn->d_un.d_val / sizeof(void*);
+                break;
             default:
                 break;
         }
         pDyn++;
     }
 
+
     //4.重定位表
+    //4.1加载模块
+    void** hSos = (void**)malloc(sizeof(void*)*nNumOfNeed);
+    for (size_t i = 0; i < nNumOfNeed; i++)
+    {
+        bufNeed[i] = (uint64_t)bufNeed[i] + pszStrTab ;
+        hSos[i] = dlopen(bufNeed[i],RTLD_NOW);
+    }
+    
+
     //4.1 重定位
+    Relacate(pBase,pRelaDyn,nNumOfRela,pSymTab,hSos,nNumOfNeed,pszStrTab);
+    Relacate(pBase,pRelaDyn,nNumOfRela,pSymTab,hSos,nNumOfNeed,pszStrTab);
+
+
+    //5。初始函数
+    for (size_t i = 0; i < nNumOfInis; i++)
+    {
+        bufInis[i]();
+    }
+    
 
     return 0;
 }
