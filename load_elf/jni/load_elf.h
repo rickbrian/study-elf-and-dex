@@ -11,7 +11,7 @@
 
 
 
-int load_elf(const char* sz);
+void* load_elf(const char* sz);
 
 
 #endif //LOAD_ELF_LOAD_ELF_H

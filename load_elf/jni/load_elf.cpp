@@ -17,6 +17,7 @@ typedef struct elf64_hash
     uint32_t* gnu_chain_;
 }Elf64_Hash;
 
+__attribute__((noinline))
 uint32_t gnu_hash(const char* name) {
     uint32_t h = 5381;
     while (*name != 0) {
@@ -28,6 +29,7 @@ uint32_t gnu_hash(const char* name) {
 Elf64_Hash g_hash = {0};
 Elf64_Sym *pSymTab = NULL;
 char *pszStrTab = NULL;
+__attribute__((noinline))
 void* myDlsym(void* pBase , const char* szName)
 {
     uint32_t nHash = gnu_hash(szName);
@@ -38,7 +40,7 @@ void* myDlsym(void* pBase , const char* szName)
     uint64_t bloom_word = g_hash.gnu_bloom_filter_[word_num];
 
     if ((1 & (bloom_word >> (nHash % bloom_mask_bits)) & (bloom_word >> (h2 % bloom_mask_bits))) == 0) {
-      return ;
+      return NULL;
     }
 
     uint32_t n = g_hash.gnu_bucket_[nHash % g_hash.nbucket];
@@ -49,7 +51,7 @@ void* myDlsym(void* pBase , const char* szName)
         if (((g_hash.gnu_chain_[n] ^ nHash) >> 1) == 0 &&
             strcmp(pszStrTab + s->st_name, szName) == 0 )
         {
-            return pBase + s->st_value;
+            return (void*)((uint8_t*)pBase + s->st_value);
         }
     } while ((g_hash.gnu_chain_[n++] & 1) == 0);
 
@@ -57,7 +59,7 @@ void* myDlsym(void* pBase , const char* szName)
 }
 
 __attribute__((noinline))
-void Relacate(void* pBase, Elf64_Rela* pRel ,size_t nNumOfRels, Elf64_Sym* pSym,
+void Relacate(uint8_t* pBase, Elf64_Rela* pRel ,size_t nNumOfRels, Elf64_Sym* pSym,
     void* hSos[], size_t nNumOfSos, const char* pStr){
         for (size_t i = 0; i < nNumOfRels; i++)
         {
@@ -99,19 +101,20 @@ void Relacate(void* pBase, Elf64_Rela* pRel ,size_t nNumOfRels, Elf64_Sym* pSym,
         
 }
 
-int load_elf(const char* sz) {
+__attribute__((noinline))
+void* load_elf(const char* sz) {
     //1.读取文件，文件头和段表
     FILE *fp = fopen(sz, "rb");
     if (fp == NULL) {
         printf("open file error\n");
-        return -1;
+        return NULL;
     }
 
     Elf64_Ehdr ehdr = {0};
     fread(&ehdr, 1, sizeof(Elf64_Ehdr), fp);
     if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
         printf("It is not elf file\n");
-        return -1;
+        return NULL;
     }
 
     //1.2 读取段表
@@ -119,7 +122,7 @@ int load_elf(const char* sz) {
     Elf64_Phdr *phdr = (Elf64_Phdr *) malloc(nSize);
     if (phdr == NULL) {
         printf("malloc error\n");
-        return -1;
+        return NULL;
     }
     fseek(fp, ehdr.e_phoff, SEEK_SET);
     fread(phdr, 1, nSize, fp);
@@ -129,7 +132,7 @@ int load_elf(const char* sz) {
     //2.1 计算内存大小
     size_t nLoadSize = 0;
     for (size_t i = ehdr.e_phnum - 1; i >= 0; i--) {
-        if (phdr[i - 1].p_type == PT_LOAD) {
+        if (phdr[i].p_type == PT_LOAD) {
             nLoadSize =
                     ((phdr[i].p_vaddr + phdr[i].p_memsz + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
             break;
@@ -137,7 +140,7 @@ int load_elf(const char* sz) {
     }
 
     //2.2 申请内存
-    void *pBase = mmap64(NULL, nLoadSize, PROT_READ | PROT_WRITE | PROT_EXEC,
+    uint8_t *pBase = (uint8_t*)mmap64(NULL, nLoadSize, PROT_READ | PROT_WRITE | PROT_EXEC,
                          MAP_PRIVATE | MAP_ANONYMOUS , -1, 0);
 
     //2.3 加载段到程序中
@@ -174,7 +177,6 @@ int load_elf(const char* sz) {
 
 
 
-    Elf64_Sym *pSymTab = NULL;
     size_t nNumOfSym = 0;
 
     char *bufNeed[0x100] = {0};
@@ -251,7 +253,7 @@ int load_elf(const char* sz) {
 
     //4.1 重定位
     Relacate(pBase,pRelaDyn,nNumOfRela,pSymTab,hSos,nNumOfNeed,pszStrTab);
-    Relacate(pBase,pRelaDyn,nNumOfRela,pSymTab,hSos,nNumOfNeed,pszStrTab);
+    Relacate(pBase,pRelaPlt,nNumOfRelaPlt,pSymTab,hSos,nNumOfNeed,pszStrTab);
 
 
     //5。初始函数
@@ -261,11 +263,25 @@ int load_elf(const char* sz) {
     }
     
 
-    return 0;
+    return pBase;
 }
 
 int main() {
-    load_elf("/data/local/tmp/libfoo.so");
+    void* handle = load_elf("/data/local/tmp/libfoo1111111111.so");
+
+    typedef int*(*PFN_ADD)(int,int);
+
+    PFN_ADD pAdd = (PFN_ADD)myDlsym(handle,"Add");
+    if (pAdd)
+    {
+        printf("1 + 3 = %d ",pAdd(1,3));
+    }
+    
+    PFN_ADD pSub=  (PFN_ADD)myDlsym(handle,"Sub");
+    if (pSub)
+    {
+        printf("1 - 3 = %d ",pSub(1,3));
+    }
 
     return 0;
 }
