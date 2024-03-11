@@ -88,12 +88,15 @@ void Relacate(uint8_t* pBase, Elf64_Rela* pRel ,size_t nNumOfRels, Elf64_Sym* pS
             case R_AARCH64_RELATIVE:
                 *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)(pBase + pRel[i].r_addend);
                 break;
-                break;
-            case R_AARCH64_GLOB_DAT:
+            case R_AARCH64_GLOB_DAT://全局变量
                 *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)nAddr;
                 break;
-            case R_AARCH64_JUMP_SLOT:
+            case R_AARCH64_JUMP_SLOT://函数
                 *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)nAddr;
+                break;
+            case R_AARCH64_ABS64://init_array
+                *(uint64_t*)(pBase + pRel[i].r_offset) = (uint64_t)nAddr;
+                break;
             default:
                 break;
             }
@@ -129,7 +132,7 @@ void* load_elf(const char* sz) {
 
 
     //2.申请内存，映射
-    //2.1 计算内存大小
+    //2.1 计算内存大小,需要申请一个完整的分页
     size_t nLoadSize = 0;
     for (size_t i = ehdr.e_phnum - 1; i >= 0; i--) {
         if (phdr[i].p_type == PT_LOAD) {
@@ -172,9 +175,6 @@ void* load_elf(const char* sz) {
     }
 
     //3.1解析动态段
-
-
-
 
 
     size_t nNumOfSym = 0;
@@ -225,7 +225,7 @@ void* load_elf(const char* sz) {
                 g_hash.gnu_bucket_ = (uint32_t *) (g_hash.gnu_bloom_filter_ + g_hash.mask_swords);
                 g_hash.gnu_chain_ = g_hash.gnu_bucket_ + g_hash.nbucket - g_hash.symindex;
 
-                --g_hash.mask_swords;
+                --g_hash.mask_swords;//源码中就是这样的
                 break;
             }
             case DT_INIT_ARRAY:
@@ -267,7 +267,7 @@ void* load_elf(const char* sz) {
 }
 
 int main() {
-    void* handle = load_elf("/data/local/tmp/libfoo1111111111.so");
+    void* handle = load_elf("/data/local/tmp/libfoo1111111111222.so");
 
     typedef int*(*PFN_ADD)(int,int);
 
