@@ -5,12 +5,6 @@
 
 typedef void*(*PFN_INIT)();
 
-typedef   void soinfo;
-
-typedef soinfo* (*PFN_find_containing_library)(const void* p);
-
-
-
 #define  PAGE_SIZE 0X1000
 typedef struct elf64_hash
 {
@@ -22,9 +16,6 @@ typedef struct elf64_hash
     uint32_t* gnu_bucket_;
     uint32_t* gnu_chain_;
 }Elf64_Hash;
-
-__attribute__((noinline))
-void* getLinker64Base();
 
 __attribute__((noinline))
 uint32_t gnu_hash(const char* name) {
@@ -265,15 +256,7 @@ void* load_elf(const char* sz) {
     Relacate(pBase,pRelaPlt,nNumOfRelaPlt,pSymTab,hSos,nNumOfNeed,pszStrTab);
 
 
-    //5.修复sinfo
-    void*pLinkerBase = getLinker64Base();
-    //check...
-    PFN_find_containing_library pfn_find_containing_library =
-    (PFN_find_containing_library)((int8_t*)pLinkerBase + 0x9ab0);
-    soinfo* pSo = pfn_find_containing_library((void*)&myDlsym);
-        //check...
-
-    //6.初始函数
+    //5。初始函数
     for (size_t i = 0; i < nNumOfInis; i++)
     {
         bufInis[i]();
@@ -283,8 +266,22 @@ void* load_elf(const char* sz) {
     return pBase;
 }
 
-__attribute__ ((constructor)) void load()
-{
-    printf("load\n");
+int main() {
     void* handle = load_elf("/data/local/tmp/libfoo1111111111222.so");
+
+    typedef int*(*PFN_ADD)(int,int);
+
+    PFN_ADD pAdd = (PFN_ADD)myDlsym(handle,"Add");
+    if (pAdd)
+    {
+        printf("1 + 3 = %d ",pAdd(1,3));
+    }
+    
+    PFN_ADD pSub=  (PFN_ADD)myDlsym(handle,"Sub");
+    if (pSub)
+    {
+        printf("1 - 3 = %d ",pSub(1,3));
+    }
+
+    return 0;
 }
