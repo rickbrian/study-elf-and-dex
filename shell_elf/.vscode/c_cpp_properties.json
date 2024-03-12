@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "D:/NDK/android-ndk-r25c/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-clang-x64",
+            "compilerPath": "D:/NDK/android-ndk-r25c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
+        }
+    ],
+    "version": 4
+}
