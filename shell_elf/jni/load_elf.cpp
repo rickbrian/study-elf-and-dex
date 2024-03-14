@@ -5,13 +5,159 @@
 
 typedef void*(*PFN_INIT)();
 
-typedef   void soinfo;
+
+
+#define ElfW(type) Elf64_##type 
+
+typedef uint64_t linker_ctor_function_t; 
+typedef uint64_t linker_dtor_function_t;
+
+struct link_map
+{
+    ElfW(Addr) l_addr;
+    char *l_name;
+    ElfW(Dyn) * l_ld;
+    struct link_map *l_next;
+    struct link_map *l_prev;
+};
+struct TlsIndex {
+    size_t module_id;
+    size_t offset;
+};
+struct TlsSegment {
+    size_t size = 0;
+    size_t alignment = 1;
+    const void* init_ptr = "";
+    size_t init_size = 0;
+};
+struct soinfo_tls {
+    TlsSegment segment;
+    size_t module_id ;
+};
+struct TlsDynamicResolverArg {
+    size_t generation;
+    TlsIndex index;
+};
+template<typename T  ,typename Allocator>
+class LinkedList
+{
+    void * head_ ;
+    void* tail_ ;
+};
+
+typedef LinkedList<int, void*> soinfo_list_t;
+typedef LinkedList<int, void*> android_namespace_list_t;
+
+
+struct soinfo
+{
+public:
+    const ElfW(Phdr) * phdr;
+    size_t phnum;
+    uint64_t* base;
+    size_t size;
+    ElfW(Dyn) * dynamic;
+    soinfo *next;
+    uint32_t flags_;
+
+    const char *strtab_;
+    ElfW(Sym) * symtab_;
+
+    size_t nbucket_;
+    size_t nchain_;
+    uint32_t *bucket_;
+    uint32_t *chain_;
+
+    ElfW(Rela) * plt_rela_;
+    size_t plt_rela_count_;
+
+    ElfW(Rela) * rela_;
+    size_t rela_count_;
+
+    linker_ctor_function_t *preinit_array_;
+    size_t preinit_array_count_;
+
+    linker_ctor_function_t *init_array_;
+    size_t init_array_count_;
+    linker_dtor_function_t *fini_array_;
+    size_t fini_array_count_;
+
+    linker_ctor_function_t init_func_;
+    linker_dtor_function_t fini_func_;
+
+    size_t ref_count_;
+    link_map link_map_head;
+
+    bool constructors_called;
+
+    // When you read a virtual address from the ELF file, add this
+    // value to get the corresponding address in the process' address space.
+    uint64_t* load_bias;
+
+    bool has_DT_SYMBOLIC;
+
+    uint32_t version_;
+
+    // version >= 0
+    dev_t st_dev_;
+    ino_t st_ino_;
+
+    // dependency graph
+    soinfo_list_t children_;
+    soinfo_list_t parents_;
+
+    // version >= 1
+    off64_t file_offset_;
+    uint32_t rtld_flags_;
+    uint32_t dt_flags_1_;
+    size_t strtab_size_;
+
+    // version >= 2
+
+    size_t gnu_nbucket_;
+    uint32_t *gnu_bucket_;
+    uint32_t *gnu_chain_;
+    uint32_t gnu_maskwords_;
+    uint32_t gnu_shift2_;
+    uint64_t * gnu_bloom_filter_;
+
+    soinfo *local_group_root_;
+
+    uint8_t *android_relocs_;
+    size_t android_relocs_size_;
+
+    const char *soname_;
+    std::string realpath_;
+
+    const ElfW(Versym) * versym_;
+
+    ElfW(Addr) verdef_ptr_;
+    size_t verdef_cnt_;
+
+    Elf64_Addr verneed_ptr_;
+    size_t verneed_cnt_;
+
+    int target_sdk_version_;
+
+    // version >= 3
+    std::vector<std::string> dt_runpath_;
+    void*primary_namespace_;
+    android_namespace_list_t secondary_namespaces_;
+    uintptr_t handle_;
+
+    // version >= 4
+    ElfW(Relr) * relr_;
+    size_t relr_count_;
+
+    // version >= 5
+    std::unique_ptr<soinfo_tls> tls_;
+    std::vector<TlsDynamicResolverArg> tlsdesc_args_;
+};
+
+
 
 typedef soinfo* (*PFN_find_containing_library)(const void* p);
 
-
-
-#define  PAGE_SIZE 0X1000
 typedef struct elf64_hash
 {
     uint32_t nbucket;
@@ -24,7 +170,36 @@ typedef struct elf64_hash
 }Elf64_Hash;
 
 __attribute__((noinline))
-void* getLinker64Base();
+void* getLinker64Base(){
+    pid_t pid = getpid();
+    int nStarAddr =  0;
+    char szName[0x100] = {0};
+
+    sprintf(szName, "/proc/%d/maps", pid);
+    puts(szName);
+    FILE  *pFile = fopen(szName, "r");
+    if (!pFile) {
+        fprintf(stderr, "Error opening file.\n");
+        return NULL;
+    }
+    while (!feof(pFile)) {
+        char szLine[0x100] = {0};
+        fgets(szLine, sizeof(szLine), pFile);
+        if(strstr(szLine, "linker64")){
+            // Assuming the address is the first part of the line before the '-' character
+            char* addrStr = strtok(szLine, "-");
+            if (addrStr) {
+                return (void*)strtoul(addrStr, NULL, 16);
+                
+            }
+        }
+
+    }
+
+    fclose(pFile);
+
+    return NULL;
+}
 
 __attribute__((noinline))
 uint32_t gnu_hash(const char* name) {
@@ -182,9 +357,9 @@ void* load_elf(const char* sz) {
             break;
         }
     }
-
+    Elf64_Dyn *pDyns = pDyn;
     //3.1解析动态段
-
+    size_t nSizeOfStrtable = 0;
 
     size_t nNumOfSym = 0;
 
@@ -199,6 +374,10 @@ void* load_elf(const char* sz) {
 
     PFN_INIT* bufInis = NULL;
     size_t nNumOfInis = 0;
+
+    Elf64_Versym * pVERSYM = NULL;
+    Elf64_Addr pVERNEED = NULL;
+    size_t nVERNEEDNUM = 0;
 
     while (pDyn->d_tag != DT_NULL) {
         switch (pDyn->d_tag) {
@@ -243,6 +422,18 @@ void* load_elf(const char* sz) {
             case DT_INIT_ARRAYSZ:
                 nNumOfInis =  pDyn->d_un.d_val / sizeof(void*);
                 break;
+            case DT_STRSZ:
+                nSizeOfStrtable = pDyn->d_un.d_ptr;
+                break;
+            case DT_VERNEED:
+                pVERNEED =  (Elf64_Addr)(pBase + pDyn->d_un.d_ptr);
+                break;
+            case DT_VERNEEDNUM:
+                nVERNEEDNUM = pDyn->d_un.d_ptr;
+                break;
+            case DT_VERSYM:
+                pVERSYM = (Elf64_Versym*)(pBase + pDyn->d_un.d_ptr);
+                break;
             default:
                 break;
         }
@@ -266,13 +457,53 @@ void* load_elf(const char* sz) {
 
 
     //5.修复sinfo
+    printf("修复sinfo\n");
     void*pLinkerBase = getLinker64Base();
-    //check...
+    printf("pLinkerBase:%llx\n",pLinkerBase);
+    if(pLinkerBase == NULL){
+        printf("getLinker64Base failed\n");
+        return NULL;
+    }
     PFN_find_containing_library pfn_find_containing_library =
-    (PFN_find_containing_library)((int8_t*)pLinkerBase + 0x9ab0);
-    soinfo* pSo = pfn_find_containing_library((void*)&myDlsym);
-        //check...
+        (PFN_find_containing_library)((int8_t *)pLinkerBase + 0x38F14);//安卓10
+    soinfo *pSo = pfn_find_containing_library((void *)&myDlsym);
+    printf("soinfo addr:%llx\n",pSo);
+    pSo->phdr = phdr;
+    pSo->phnum = ehdr.e_phnum;
+    pSo->base = (uint64_t*)pBase;
+    pSo->size = nLoadSize;
+    pSo->dynamic = pDyns;
+    pSo->strtab_ = pszStrTab;
+    pSo->symtab_ = pSymTab;
+    pSo->plt_rela_ = pRelaPlt;
+    pSo->plt_rela_count_ = nNumOfRelaPlt;
+    pSo->rela_ = pRelaDyn;
+    pSo->rela_count_ = nNumOfRela;
 
+    //preinit_array_
+    //preinit_array_count_
+
+    pSo->init_array_ = (linker_ctor_function_t *)bufInis;
+    pSo->init_array_count_ = nNumOfInis;
+
+    //fini_array_
+    //fini_array_count_
+
+    pSo->load_bias = (uint64_t*)pBase;
+    pSo->strtab_size_ = nSizeOfStrtable;
+
+    pSo->gnu_nbucket_   = g_hash.nbucket;
+    pSo->gnu_bucket_ = g_hash.gnu_bucket_;
+    pSo->gnu_chain_ = g_hash.gnu_chain_;
+    pSo->gnu_maskwords_ = g_hash.mask_swords;
+    pSo->gnu_shift2_ = g_hash.shift2;
+    pSo->gnu_bloom_filter_ = g_hash.gnu_bloom_filter_;
+
+    pSo->versym_ = pVERSYM;
+    pSo->verneed_ptr_ = pVERNEED;
+    pSo->verneed_cnt_ = nVERNEEDNUM;
+
+    
     //6.初始函数
     for (size_t i = 0; i < nNumOfInis; i++)
     {
@@ -286,5 +517,15 @@ void* load_elf(const char* sz) {
 __attribute__ ((constructor)) void load()
 {
     printf("load\n");
-    void* handle = load_elf("/data/local/tmp/libfoo1111111111222.so");
+    void* handle = load_elf("/data/local/tmp/libtest.so");
+    typedef int*(*PFN_ADD)(int,int);
+
+    PFN_ADD pAdd = (PFN_ADD)myDlsym(handle,"Add");
+    if (pAdd)
+    {
+        printf("\n1 + 3 = %d \n",pAdd(1,3));
+    }
+    else{
+        printf("myDlsym err:%s\n", dlerror());
+    }
 }

@@ -1,15 +1,11 @@
 {
     "files.associations": {
-        "elf.h": "c",
-        "__threading_support": "cpp",
-        "memory": "cpp",
-        "optional": "cpp",
-        "type_traits": "cpp",
-        "utility": "cpp",
+        "iosfwd": "cpp",
         "vector": "cpp",
         "__hash_table": "cpp",
         "array": "cpp",
         "charconv": "cpp",
+        "type_traits": "cpp",
         "limits": "cpp",
         "ratio": "cpp",
         "tuple": "cpp",

@@ -8,6 +8,10 @@
 #include <elf.h>
 #include <memory.h>
 #include <sys/mman.h>
+#include <string>
+#include <vector>
+#include <unistd.h>
+using namespace  std;
 
 
 
