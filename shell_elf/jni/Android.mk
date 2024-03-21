@@ -1,15 +1,16 @@
 LOCAL_PATH := $(call my-dir)
 
-# include $(CLEAR_VARS)
-# LOCAL_MODULE := foo
-# LOCAL_SRC_FILES := foo.c
-# include $(BUILD_SHARED_LIBRARY)
-
 include $(CLEAR_VARS)
 LOCAL_MODULE := foo
-LOCAL_SRC_FILES := load_elf.cpp
-#LOCAL_LDFLAGS += -Wl,-soname=libfoo.so
+LOCAL_SRC_FILES := foo.c
+LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
+
+# include $(CLEAR_VARS)
+# LOCAL_MODULE := foo
+# LOCAL_SRC_FILES := load_elf.cpp
+# #LOCAL_LDFLAGS += -Wl,-soname=libfoo.so
+# include $(BUILD_SHARED_LIBRARY)
 
 # include $(CLEAR_VARS)
 # LOCAL_MODULE := main
