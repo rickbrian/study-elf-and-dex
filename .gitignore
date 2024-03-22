@@ -1,7 +1,9 @@
 ELF_parse/cmake-build-debug/
 DexParse/cmake-build-debug/
-shell_elf/obj/
 
+shell_elf/obj/
+load_elf/obj/
+plt_inline_hook/obj/
 
 shell_elf_as/*.iml
 shell_elf_as/.gradle

@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "elf.h": "c",
+        "__threading_support": "cpp",
+        "memory": "cpp",
+        "optional": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "vector": "cpp"
+    }
+}
