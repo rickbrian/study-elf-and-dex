@@ -468,13 +468,6 @@ void* load_elf(const char* sz) {
     soinfo *pSo = pfn_find_containing_library((void *)&myDlsym);
     printf("soinfo addr:%llx\n",pSo);
 
-    //修改内存为可写属性
-    if(errno = mprotect(pSo, sizeof(soinfo),   PROT_WRITE)== -1) {
-        LOGD("mprotect err:%s\n", strerror(errno));
-        //mprotect err:Operation not permitted
-    }
-
-
     pSo->phdr = phdr;
     pSo->phnum = ehdr.e_phnum;
     pSo->base = (uint64_t*)pBase;
