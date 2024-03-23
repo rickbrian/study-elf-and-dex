@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "elf.h": "c",
+        "__threading_support": "cpp",
+        "memory": "cpp",
+        "optional": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "vector": "cpp",
+        "types.h": "c",
+        "ptrace.h": "c",
+        "stdio.h": "c",
+        "wait.h": "c",
+        "mman.h": "c",
+        "user.h": "c",
+        "__config": "c",
+        "dlfcn.h": "c"
+    }
+}
